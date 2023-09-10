@@ -55,7 +55,7 @@
 - Long term physical storage attached to a `pod` so that when a pod dies, the data doesn't disappear 
 - Volumnes are not part of a Cluster but simply either a local storage or remote cloud storage because Kubernetes doesn't manage data persistence
 
-## Blueprint and Deployment
+### Blueprint and Deployment
 - To increase the availability, we don't just have 1 `node` but multiple `nodes` where `pods` connecting to the same `service`
 - To do this, instead of manually replicating the `node`, we have a config file called `Blueprint` where we can specify how many replicas we want
 - The process to deploy the `blueprint` is called a `Deployment`.
@@ -66,7 +66,6 @@
 - This is component to deploy stateful applications like databases
 - Statefulset manages the deployment and replication of database and the synchronization of the replicas
 - However it's more difficult to deploy databases using Statefulset so it's also a common practice to host databases outside of Kubernetes
-
 
 ## Configuration
 - We can interact with Kube clusters using either API, dashboard or CLI
@@ -82,3 +81,96 @@
 
 ## kubectl
 - It's a CLI tool to interact with `API server` of a cluster
+
+## Demo
+
+### Step 1: Create ConfigMap and Secret
+- Create a file name `mongo-config.yml` as a Config Map, in data section, specify the key/value `mongo-url: mongo-service`.
+- Create a file name `mongo-secret.yml` as a Secret, in data section, specify key/value pairs username and password in Base64 format.
+
+### Step 2: Create Mongo and Webapp service Deployment file
+- Create a deployment file `mongo-service.yml`.
+- In the spec section, we can give how many pod replicas there are.
+- In the `template` > `spec` section, we can specify the name of the container, its image and ports, in this case the container's name is `mongodb`, `image` is `mongo:5.0` and `containerPort` by default is `27017`
+- In `metadata` section of any component, we can give a `label`, when a deployment is running, each pod replica is given a unique name, so to refer to all of them, we can use labels are additional identifier, for pod it's mandatory but optional for other components
+- Kubernetes identifies which pod replicas belong to which deployment by the `selector` > `matchLabels`.
+- To create a service, we need to define the service name in the `metadata` section which matches the service name in Config Map.
+- For the servie to know which pods it forward traffic to, we need to give the `spec` > `selector` the same name as the pod label
+- For service ports, we specify the service's port and `targetPort` which is the same port as the container's port.
+- It's also a common practice to have `port` the same as `targetPort` to make things simple.
+- We also duplicate the mongodb file into a webapp service file with same config except for the image and port
+- To fetch username and password from secret file, we need to define the environment variables using `env`.
+- The environment variables we have to set, according to the Mongo image documentation are `MONGO_INITDB_ROOT_USERNAME` and `MONGO_INITDB_ROOT_PASSWORD`, we can either directly set them using `value` or we can use `valueFrom` > `secretKeyRef` to fetch from the `mongo-secret` file
+- We need to do the same thing for the webapp file with 3 environment variables `USER_NAME`, `USER_PWD` and `DB_URL`. Since the DB_URL is not from secret but from the config map, we need to use `valueFrom` > `configMapRefKey` instead.
+- To expose the webapp, we need an `external service`, by default the type of a service is `ClusterIP`, to expose this webapps service, we need to change its type to `NodePort` and add another port called `nodePort`.
+- The `nodePort` is the port which the node exposes the service and it has to be in range of `30000-32767`
+
+### Deploy
+- To deploy a `Deployment`, the `Secret` and `ConfigMap` file have to exist beforehand
+```zsh
+laxuanlinh@Las-MacBook-Air demo % kubectl apply -f mongo-config.yml
+configmap/mongo-config created
+
+laxuanlinh@Las-MacBook-Air demo % kubectl apply -f mongo-secret.yml
+secret/mongo-secret created
+```
+- Then we can create deployment for mongo and webapp
+```zsh
+laxuanlinh@Las-MacBook-Air demo % kubectl apply -f mongo.yml
+deployment.apps/mongo-deployment created
+service/mongo-service created
+
+laxuanlinh@Las-MacBook-Air demo % kubectl apply -f webapp.yml
+deployment.apps/webapp-deployment created
+service/webapp-service created
+```
+
+- Now we can check on the pods running 
+```zsh
+laxuanlinh@Las-MacBook-Air demo % kubectl get pod
+NAME                                READY   STATUS    RESTARTS   AGE
+mongo-deployment-85d45f7888-nw722   1/1     Running   0          7m48s
+webapp-deployment-8688fdddf-gvr7h   1/1     Running   0          25s
+```
+- To get config map and secret
+```zsh
+laxuanlinh@Las-MacBook-Air demo % kubectl get configmap
+NAME               DATA   AGE
+kube-root-ca.crt   1      7d22h
+mongo-config       1      11m
+laxuanlinh@Las-MacBook-Air demo % kubectl get secret
+NAME           TYPE     DATA   AGE
+mongo-secret   Opaque   2      11m
+```
+
+- To get details about a pod
+```zsh
+kubectl describe pod mongo-deployment-85d45f7888-nw722
+```
+- To get logs from a pod
+```zsh
+laxuanlinh@Las-MacBook-Air demo % kubectl logs webapp-deployment-8688fdddf-gvr7h
+app listening on port 3000!
+```
+
+- To stream a log, we add -f option
+```zsh
+laxuanlinh@Las-MacBook-Air demo % kubectl logs -f webapp-deployment-8688fdddf-gvr7h
+```
+
+### Access the service
+- To access the services on a node, we need to get the node IP address and the `NodePort` service's port
+- To get node's IP
+```zsh
+laxuanlinh@Las-MacBook-Air demo % kubectl get node -o wide         
+NAME       STATUS   ROLES           AGE     VERSION   INTERNAL-IP    EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION        CONTAINER-RUNTIME
+minikube   Ready    control-plane   7d22h   v1.27.4   192.168.49.2   <none>        Ubuntu 22.04.2 LTS   5.15.49-linuxkit-pr   docker://24.0.4
+```
+- To get the services
+```zsh
+laxuanlinh@Las-MacBook-Air demo % kubectl get service
+NAME             TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
+kubernetes       ClusterIP   10.96.0.1        <none>        443/TCP          7d22h
+mongo-service    ClusterIP   10.106.143.116   <none>        27017/TCP        20m
+webapp-service   NodePort    10.97.146.76     <none>        3000:30000/TCP   15m
+```
