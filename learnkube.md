@@ -174,3 +174,10 @@ kubernetes       ClusterIP   10.96.0.1        <none>        443/TCP          7d2
 mongo-service    ClusterIP   10.106.143.116   <none>        27017/TCP        20m
 webapp-service   NodePort    10.97.146.76     <none>        3000:30000/TCP   15m
 ```
+
+- Now we can access the service using node's internal IP and `NodePort`'s port.
+- However if we're runnign docker on MacOS with Darwin kernel or Windows, the IP address is limited and cannot be accessed
+- To expose the IP address, we need to run a process with the following command to tunnel to the cluster
+```zsh
+minikube services webapp-service
+```
